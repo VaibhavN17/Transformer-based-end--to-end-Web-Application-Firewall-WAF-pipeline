@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>WAF Shield — Transformer Firewall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* ── Reset & Variables ────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #080c10;
+    --surface:  #0d1117;
+    --border:   #1e2632;
+    --primary:  #00e5ff;
+    --danger:   #ff3b5c;
+    --warn:     #ffb820;
+    --success:  #00d97e;
+    --muted:    #4a5568;
+    --text:     #e2e8f0;
+    --text-dim: #8892a4;
+    --mono:     'Space Mono', monospace;
+    --sans:     'DM Sans', sans-serif;
+  }
+
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid Background ──────────────────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Header ───────────────────────────────────────────────────────── */
+  header {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(8,12,16,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--mono);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    color: var(--primary);
+  }
+
+  .logo-icon {
+    width: 32px; height: 32px;
+    border: 2px solid var(--primary);
+    border-radius: 6px;
+    display: grid; place-items: center;
+    font-size: 1rem;
+  }
+
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: .5; transform: scale(1.4); }
+  }
+
+  .header-right { display: flex; align-items: center; gap: 12px; }
+
+  /* ── Main Layout ─────────────────────────────────────────────────── */
+  main {
+    position: relative; z-index: 1;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 2rem;
+  }
+
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+
+  /* ── Stat Cards ──────────────────────────────────────────────────── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  @media (max-width: 800px) { .stats-grid { grid-template-columns: repeat(2,1fr); } }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.2rem 1.4rem;
+    position: relative;
+    overflow: hidden;
+    transition: border-color .2s;
+  }
+
+  .stat-card:hover { border-color: var(--primary); }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .stat-card.blue::before  { background: var(--primary); }
+  .stat-card.red::before   { background: var(--danger); }
+  .stat-card.green::before { background: var(--success); }
+  .stat-card.warn::before  { background: var(--warn); }
+
+  .stat-label {
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    margin-bottom: .4rem;
+  }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    font-family: var(--mono);
+    line-height: 1;
+  }
+
+  .stat-card.blue  .stat-value { color: var(--primary); }
+  .stat-card.red   .stat-value { color: var(--danger); }
+  .stat-card.green .stat-value { color: var(--success); }
+  .stat-card.warn  .stat-value { color: var(--warn); }
+
+  .stat-sub { font-size: .78rem; color: var(--text-dim); margin-top: .4rem; }
+
+  /* ── Panel ───────────────────────────────────────────────────────── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    padding: 1rem 1.4rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .panel-title {
+    font-family: var(--mono);
+    font-size: .8rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--primary);
+  }
+
+  .panel-body { padding: 1.4rem; }
+
+  /* ── Request Inspector ───────────────────────────────────────────── */
+  .inspect-area textarea {
+    width: 100%;
+    background: #060a0e;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: .82rem;
+    padding: .9rem 1rem;
+    resize: vertical;
+    min-height: 100px;
+    outline: none;
+    transition: border-color .2s;
+  }
+
+  .inspect-area textarea:focus { border-color: var(--primary); }
+
+  .inspect-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: .75rem;
+    margin: .75rem 0;
+  }
+
+  .meta-input {
+    background: #060a0e;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: .78rem;
+    padding: .6rem .8rem;
+    outline: none;
+    transition: border-color .2s;
+  }
+
+  .meta-input:focus { border-color: var(--primary); }
+  .meta-input::placeholder { color: var(--muted); }
+
+  .btn-row { display: flex; gap: .75rem; }
+
+  .btn {
+    padding: .6rem 1.4rem;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: .78rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    transition: all .15s;
+  }
+
+  .btn-primary {
+    background: var(--primary);
+    color: #000;
+  }
+
+  .btn-primary:hover { filter: brightness(1.15); transform: translateY(-1px); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+
+  .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
+
+  .btn-danger {
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+  }
+
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+
+  /* ── Result Box ─────────────────────────────────────────────────── */
+  .result-box {
+    margin-top: 1rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    display: none;
+  }
+
+  .result-box.show { display: block; }
+
+  .result-banner {
+    padding: .9rem 1.2rem;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: .9rem;
+    letter-spacing: .12em;
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+  }
+
+  .result-banner.blocked { background: rgba(255,59,92,.15); color: var(--danger); }
+  .result-banner.allowed { background: rgba(0,217,126,.1);  color: var(--success); }
+
+  .result-details {
+    background: #060a0e;
+    padding: 1rem 1.2rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .5rem;
+  }
+
+  .detail-row {
+    font-size: .78rem;
+    display: flex;
+    gap: .4rem;
+    align-items: center;
+  }
+
+  .detail-row span:first-child {
+    color: var(--text-dim);
+    font-family: var(--mono);
+    min-width: 110px;
+  }
+
+  .badge {
+    padding: .15rem .6rem;
+    border-radius: 4px;
+    font-size: .7rem;
+    font-family: var(--mono);
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .badge-sqli    { background: rgba(255,184,32,.2);  color: var(--warn); }
+  .badge-xss     { background: rgba(255,59,92,.2);   color: var(--danger); }
+  .badge-path    { background: rgba(168,85,247,.2);  color: #c084fc; }
+  .badge-cmd     { background: rgba(251,146,60,.2);  color: #fb923c; }
+  .badge-normal  { background: rgba(0,217,126,.15);  color: var(--success); }
+
+  /* ── Probability Bars ────────────────────────────────────────────── */
+  .prob-bars { padding: .8rem 1.2rem; background: #060a0e; border-top: 1px solid var(--border); }
+  .prob-label { font-size: .7rem; color: var(--text-dim); font-family: var(--mono); margin-bottom: .6rem; letter-spacing: .08em; }
+
+  .prob-row {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    margin-bottom: .4rem;
+    font-size: .72rem;
+    font-family: var(--mono);
+  }
+
+  .prob-name { min-width: 90px; color: var(--text-dim); }
+  .prob-track { flex: 1; height: 5px; background: var(--border); border-radius: 99px; overflow: hidden; }
+  .prob-fill  { height: 100%; border-radius: 99px; transition: width .4s ease; }
+  .prob-val   { min-width: 40px; text-align: right; color: var(--text); }
+
+  /* ── Log Feed ────────────────────────────────────────────────────── */
+  .log-feed { max-height: 420px; overflow-y: auto; }
+  .log-feed::-webkit-scrollbar { width: 4px; }
+  .log-feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+  .log-row {
+    display: grid;
+    grid-template-columns: 70px 90px 1fr 80px 80px;
+    gap: .75rem;
+    align-items: center;
+    padding: .55rem 1.4rem;
+    border-bottom: 1px solid rgba(30,38,50,.6);
+    font-size: .73rem;
+    font-family: var(--mono);
+    transition: background .1s;
+  }
+
+  .log-row:hover { background: rgba(255,255,255,.02); }
+
+  .log-row.blocked { border-left: 2px solid var(--danger); }
+  .log-row.allowed { border-left: 2px solid var(--success); }
+
+  .log-time  { color: var(--muted); }
+  .log-ip    { color: var(--text-dim); }
+  .log-path  { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log-label { }
+  .log-action { text-align: right; }
+
+  .tag-blocked { color: var(--danger); }
+  .tag-allowed { color: var(--success); }
+
+  .log-header {
+    display: grid;
+    grid-template-columns: 70px 90px 1fr 80px 80px;
+    gap: .75rem;
+    padding: .5rem 1.4rem;
+    font-size: .65rem;
+    color: var(--muted);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── Label Distribution Chart ────────────────────────────────────── */
+  .label-bars { display: flex; flex-direction: column; gap: .7rem; }
+
+  .lbar-row {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    font-size: .75rem;
+    font-family: var(--mono);
+  }
+
+  .lbar-name { min-width: 100px; color: var(--text-dim); }
+  .lbar-track { flex: 1; height: 8px; background: var(--border); border-radius: 99px; overflow: hidden; }
+  .lbar-fill  { height: 100%; border-radius: 99px; transition: width .6s ease; }
+  .lbar-val   { min-width: 30px; text-align: right; color: var(--text); }
+
+  .lbar-normal { background: var(--success); }
+  .lbar-sqli   { background: var(--warn); }
+  .lbar-xss    { background: var(--danger); }
+  .lbar-path   { background: #c084fc; }
+  .lbar-cmd    { background: #fb923c; }
+
+  /* ── Sidebar ─────────────────────────────────────────────────────── */
+  .sidebar { display: flex; flex-direction: column; gap: 1.5rem; }
+
+  /* ── Log Upload ──────────────────────────────────────────────────── */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+  }
+
+  .upload-zone:hover, .upload-zone.drag { border-color: var(--primary); background: rgba(0,229,255,.04); }
+
+  .upload-icon { font-size: 1.8rem; margin-bottom: .5rem; }
+
+  .upload-text { font-size: .8rem; color: var(--text-dim); line-height: 1.6; }
+
+  #fileInput { display: none; }
+
+  /* ── Top Attackers ───────────────────────────────────────────────── */
+  .attacker-list { display: flex; flex-direction: column; gap: .5rem; }
+
+  .attacker-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: .75rem;
+    font-family: var(--mono);
+    padding: .5rem .7rem;
+    background: rgba(255,59,92,.06);
+    border-radius: 6px;
+    border: 1px solid rgba(255,59,92,.12);
+  }
+
+  .attacker-ip   { color: var(--danger); }
+  .attacker-count { color: var(--text-dim); }
+
+  /* ── Loader ──────────────────────────────────────────────────────── */
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+    display: none;
+  }
+
+  .spinner.active { display: inline-block; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Toast ───────────────────────────────────────────────────────── */
+  #toast {
+    position: fixed;
+    bottom: 2rem; right: 2rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: .8rem 1.2rem;
+    font-size: .8rem;
+    font-family: var(--mono);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all .25s;
+    z-index: 999;
+    pointer-events: none;
+  }
+
+  #toast.show { opacity: 1; transform: translateY(0); }
+
+  /* ── Animations ──────────────────────────────────────────────────── */
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .fade-in { animation: fadeIn .3s ease; }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: .65rem;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🛡</div>
+    WAF SHIELD
+  </div>
+  <div class="header-right">
+    <div class="pulse-dot" id="statusDot"></div>
+    <span style="font-size:.75rem;color:var(--text-dim);font-family:var(--mono)">LIVE</span>
+    <button class="btn btn-ghost" onclick="simulateTraffic()">Simulate</button>
+    <button class="btn btn-danger" onclick="resetStats()">Reset</button>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT COLUMN -->
+  <div>
+    <!-- Stat Cards -->
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card blue">
+        <div class="stat-label">Total Requests</div>
+        <div class="stat-value" id="statTotal">0</div>
+        <div class="stat-sub">all time</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-label">Blocked</div>
+        <div class="stat-value" id="statBlocked">0</div>
+        <div class="stat-sub" id="statBlockRate">0% of traffic</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">Allowed</div>
+        <div class="stat-value" id="statAllowed">0</div>
+        <div class="stat-sub">clean requests</div>
+      </div>
+      <div class="stat-card warn">
+        <div class="stat-label">Attack Types</div>
+        <div class="stat-value" id="statTypes">4</div>
+        <div class="stat-sub">SQLi · XSS · Path · CMD</div>
+      </div>
+    </div>
+
+    <!-- Inspector -->
+    <div class="panel" style="margin-bottom:1.5rem">
+      <div class="panel-header">
+        <span class="panel-title">Request Inspector</span>
+        <div class="spinner" id="spinner"></div>
+      </div>
+      <div class="panel-body inspect-area">
+        <textarea id="reqText" placeholder="Paste an HTTP request, URL, or query string here…
+e.g.  GET /search?q=' OR 1=1-- HTTP/1.1
+      <script>alert(document.cookie)</script>
+      ../../etc/passwd"></textarea>
+
+        <div class="inspect-meta">
+          <input class="meta-input" id="metaIP"     placeholder="IP (optional)" value="203.0.113.5"/>
+          <input class="meta-input" id="metaMethod" placeholder="Method" value="GET"/>
+          <input class="meta-input" id="metaPath"   placeholder="Path" value="/search"/>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="inspect()">Inspect →</button>
+          <button class="btn btn-ghost"   onclick="loadExample('sqli')">SQLi sample</button>
+          <button class="btn btn-ghost"   onclick="loadExample('xss')">XSS sample</button>
+          <button class="btn btn-ghost"   onclick="loadExample('normal')">Normal sample</button>
+        </div>
+
+        <!-- Result -->
+        <div class="result-box" id="resultBox">
+          <div class="result-banner" id="resultBanner"></div>
+          <div class="result-details" id="resultDetails"></div>
+          <div class="prob-bars" id="probBars"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Feed -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Live Request Feed</span>
+        <span style="font-size:.7rem;color:var(--text-dim);font-family:var(--mono)" id="feedCount">0 entries</span>
+      </div>
+      <div class="log-header">
+        <span>Time</span><span>IP</span><span>Path</span><span>Label</span><span>Action</span>
+      </div>
+      <div class="log-feed" id="logFeed">
+        <div style="padding:2rem;text-align:center;color:var(--muted);font-size:.8rem;font-family:var(--mono)">
+          No requests yet. Use the inspector or click Simulate.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN (sidebar) -->
+  <div class="sidebar">
+
+    <!-- Label Distribution -->
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">Attack Distribution</span></div>
+      <div class="panel-body">
+        <div class="label-bars" id="labelBars">
+          <div style="color:var(--muted);font-size:.78rem;font-family:var(--mono)">Awaiting data…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log Upload -->
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">Log File Analysis</span></div>
+      <div class="panel-body">
+        <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()"
+             ondragover="e=>{e.preventDefault();this.classList.add('drag')}"
+             ondragleave="this.classList.remove('drag')"
+             ondrop="handleDrop(event)">
+          <div class="upload-icon">📂</div>
+          <div class="upload-text">Drop an Apache / Nginx log file<br>or click to browse</div>
+        </div>
+        <input type="file" id="fileInput" accept=".log,.txt" onchange="uploadLog(this.files[0])"/>
+
+        <div style="margin-top:.75rem;display:flex;gap:.5rem">
+          <select class="meta-input" id="logFmt" style="flex:1">
+            <option value="apache">Apache Combined</option>
+            <option value="nginx">Nginx Error</option>
+          </select>
+          <div class="spinner" id="uploadSpinner"></div>
+        </div>
+
+        <div id="uploadResult" style="margin-top:.75rem;font-size:.75rem;color:var(--text-dim);font-family:var(--mono)"></div>
+      </div>
+    </div>
+
+    <!-- Top Attackers -->
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">Top Attacker IPs</span></div>
+      <div class="panel-body">
+        <div class="attacker-list" id="attackerList">
+          <div style="color:var(--muted);font-size:.78rem;font-family:var(--mono)">No data yet.</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const API = '';  // same-origin; change to 'http://localhost:8000' if running separately
+
+const EXAMPLES = {
+  sqli:   { text: "GET /search?q=' OR 1=1-- HTTP/1.1", method:"GET", path:"/search" },
+  xss:    { text: "GET /page?id=<script>alert(document.cookie)<\/script> HTTP/1.1", method:"GET", path:"/page" },
+  path:   { text: "GET /../../../etc/passwd HTTP/1.1", method:"GET", path:"/../../../etc/passwd" },
+  cmd:    { text: "POST /cmd?run=; cat /etc/passwd HTTP/1.1", method:"POST", path:"/cmd" },
+  normal: { text: "GET /api/products?page=1&limit=20 HTTP/1.1", method:"GET", path:"/api/products" },
+};
+
+const LABEL_COLORS = {
+  normal: 'lbar-normal', sqli: 'lbar-sqli',
+  xss: 'lbar-xss', path_traversal: 'lbar-path', cmd_injection: 'lbar-cmd',
+};
+
+const BADGE_CLASS = {
+  normal:'badge-normal', sqli:'badge-sqli', xss:'badge-xss',
+  path_traversal:'badge badge-path', cmd_injection:'badge-cmd',
+};
+
+let attackerMap = {};
+
+// ── API Calls ──────────────────────────────────────────────────────────────
+
+async function apiFetch(path, opts={}) {
+  const r = await fetch(API + path, {
+    headers: {'Content-Type':'application/json'},
+    ...opts
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// ── Inspect ────────────────────────────────────────────────────────────────
+
+async function inspect() {
+  const text = document.getElementById('reqText').value.trim();
+  if (!text) { toast('Paste a request first'); return; }
+
+  const spin = document.getElementById('spinner');
+  spin.classList.add('active');
+
+  try {
+    const res = await apiFetch('/inspect', {
+      method: 'POST',
+      body: JSON.stringify({
+        request_text: text,
+        ip:     document.getElementById('metaIP').value || 'unknown',
+        method: document.getElementById('metaMethod').value || 'GET',
+        path:   document.getElementById('metaPath').value || '/',
+      }),
+    });
+    showResult(res);
+    addLogRow(res);
+    refreshStats();
+  } catch(e) {
+    toast('API error: ' + e.message + ' — is the backend running?');
+  } finally {
+    spin.classList.remove('active');
+  }
+}
+
+function loadExample(key) {
+  const ex = EXAMPLES[key];
+  document.getElementById('reqText').value  = ex.text;
+  document.getElementById('metaMethod').value = ex.method;
+  document.getElementById('metaPath').value   = ex.path;
+}
+
+// ── Result Rendering ───────────────────────────────────────────────────────
+
+function showResult(r) {
+  const box = document.getElementById('resultBox');
+  box.className = 'result-box show fade-in';
+
+  const banner = document.getElementById('resultBanner');
+  banner.className = 'result-banner ' + (r.is_attack ? 'blocked' : 'allowed');
+  banner.innerHTML = r.is_attack
+    ? `🚫 BLOCKED — ${r.label.toUpperCase().replace('_',' ')}`
+    : `✅ ALLOWED — Clean Request`;
+
+  const details = document.getElementById('resultDetails');
+  details.innerHTML = `
+    <div class="detail-row"><span>Label</span> <span class="badge ${BADGE_CLASS[r.label] || ''}">${r.label}</span></div>
+    <div class="detail-row"><span>Confidence</span> <span>${(r.confidence*100).toFixed(1)}%</span></div>
+    <div class="detail-row"><span>Latency</span> <span>${r.latency_ms} ms</span></div>
+    <div class="detail-row"><span>Request ID</span> <span style="color:var(--muted)">${r.id}</span></div>
+  `;
+
+  // Probability bars
+  const PROB_COLORS = {
+    normal:'var(--success)', sqli:'var(--warn)',
+    xss:'var(--danger)', path_traversal:'#c084fc', cmd_injection:'#fb923c',
+  };
+  const pb = document.getElementById('probBars');
+  pb.innerHTML = '<div class="prob-label">LABEL PROBABILITIES</div>' +
+    Object.entries(r.probabilities).map(([label, p]) => `
+      <div class="prob-row">
+        <span class="prob-name">${label}</span>
+        <div class="prob-track">
+          <div class="prob-fill" style="width:${(p*100).toFixed(1)}%;background:${PROB_COLORS[label]}"></div>
+        </div>
+        <span class="prob-val">${(p*100).toFixed(1)}%</span>
+      </div>
+    `).join('');
+}
+
+// ── Log Feed ───────────────────────────────────────────────────────────────
+
+let logEntries = [];
+
+function addLogRow(r) {
+  logEntries.unshift(r);
+  if (logEntries.length > 200) logEntries.pop();
+
+  // Update attacker map
+  if (r.is_attack) {
+    attackerMap[r.ip] = (attackerMap[r.ip] || 0) + 1;
+  }
+
+  renderFeed();
+  renderAttackers();
+}
+
+function renderFeed() {
+  const feed = document.getElementById('logFeed');
+  document.getElementById('feedCount').textContent = logEntries.length + ' entries';
+
+  if (!logEntries.length) {
+    feed.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--muted);font-size:.8rem;font-family:var(--mono)">No requests yet.</div>';
+    return;
+  }
+
+  feed.innerHTML = logEntries.slice(0,100).map(r => {
+    const t = r.timestamp.slice(11,19);
+    const cls = r.is_attack ? 'blocked' : 'allowed';
+    const labelBadge = `<span class="badge ${BADGE_CLASS[r.label] || ''}">${r.label}</span>`;
+    return `<div class="log-row ${cls} fade-in">
+      <span class="log-time">${t}</span>
+      <span class="log-ip">${r.ip}</span>
+      <span class="log-path">${r.path}</span>
+      <span class="log-label">${labelBadge}</span>
+      <span class="log-action ${r.is_attack ? 'tag-blocked' : 'tag-allowed'}">${r.action}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────────
+
+async function refreshStats() {
+  try {
+    const s = await apiFetch('/dashboard/stats');
+    document.getElementById('statTotal').textContent   = s.total;
+    document.getElementById('statBlocked').textContent = s.blocked;
+    document.getElementById('statAllowed').textContent = s.allowed;
+    document.getElementById('statBlockRate').textContent = s.block_rate + '% of traffic';
+
+    renderLabelBars(s.by_label, s.total);
+  } catch(e) {}
+}
+
+function renderLabelBars(by_label, total) {
+  const container = document.getElementById('labelBars');
+  if (!total) { container.innerHTML = '<div style="color:var(--muted);font-size:.78rem;font-family:var(--mono)">Awaiting data…</div>'; return; }
+  container.innerHTML = Object.entries(by_label).map(([label, count]) => {
+    const pct = total ? ((count/total)*100).toFixed(1) : 0;
+    return `<div class="lbar-row">
+      <span class="lbar-name">${label}</span>
+      <div class="lbar-track">
+        <div class="lbar-fill ${LABEL_COLORS[label]}" style="width:${pct}%"></div>
+      </div>
+      <span class="lbar-val">${count}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderAttackers() {
+  const list = document.getElementById('attackerList');
+  const sorted = Object.entries(attackerMap).sort((a,b) => b[1]-a[1]).slice(0,5);
+  if (!sorted.length) { list.innerHTML = '<div style="color:var(--muted);font-size:.78rem;font-family:var(--mono)">No attacks yet.</div>'; return; }
+  list.innerHTML = sorted.map(([ip, count]) =>
+    `<div class="attacker-row"><span class="attacker-ip">${ip}</span><span class="attacker-count">${count} attacks</span></div>`
+  ).join('');
+}
+
+// ── Simulate ───────────────────────────────────────────────────────────────
+
+async function simulateTraffic() {
+  try {
+    const res = await apiFetch('/demo/simulate?n=30', { method: 'POST' });
+    res.results.forEach(r => addLogRow(r));
+    refreshStats();
+    toast(`Simulated ${res.simulated} requests`);
+  } catch(e) {
+    toast('Simulation error — is the backend running?');
+  }
+}
+
+// ── Log Upload ─────────────────────────────────────────────────────────────
+
+async function uploadLog(file) {
+  if (!file) return;
+  const spin = document.getElementById('uploadSpinner');
+  const out  = document.getElementById('uploadResult');
+  spin.classList.add('active');
+  out.textContent = 'Analysing…';
+
+  try {
+    const fmt = document.getElementById('logFmt').value;
+    const formData = new FormData();
+    formData.append('file', file);
+    const r = await fetch(`${API}/inspect/log?fmt=${fmt}`, { method:'POST', body: formData });
+    const data = await r.json();
+    data.results.forEach(row => addLogRow(row));
+    refreshStats();
+    out.textContent = `✓ Processed ${data.processed} entries from ${file.name}`;
+    toast(`Log file: ${data.processed} entries analysed`);
+  } catch(e) {
+    out.textContent = '✗ Error: ' + e.message;
+  } finally {
+    spin.classList.remove('active');
+  }
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadZone').classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) uploadLog(file);
+}
+
+// ── Reset ──────────────────────────────────────────────────────────────────
+
+async function resetStats() {
+  await apiFetch('/dashboard/reset', { method: 'DELETE' });
+  logEntries = []; attackerMap = {};
+  renderFeed(); renderAttackers();
+  refreshStats();
+  document.getElementById('resultBox').classList.remove('show');
+  toast('Dashboard reset');
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── Poll dashboard for recent entries (if backend running) ─────────────────
+async function pollRecent() {
+  try {
+    const recent = await apiFetch('/dashboard/recent?limit=100');
+    if (recent.length > logEntries.length) {
+      logEntries = recent;
+      attackerMap = {};
+      recent.filter(r => r.is_attack).forEach(r => {
+        attackerMap[r.ip] = (attackerMap[r.ip]||0)+1;
+      });
+      renderFeed(); renderAttackers();
+    }
+    refreshStats();
+  } catch(e) {}
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+pollRecent();
+setInterval(pollRecent, 10000);
+</script>
+</body>
+</html>
